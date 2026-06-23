@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paxos Interview Primer</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Arial,sans-serif;background:#f0f2f5;color:#1a1a1a;font-size:15px}
+.shell{display:flex;min-height:100vh}
+.sidebar{width:220px;background:#1a3a5c;flex-shrink:0;padding:1.5rem 0;position:sticky;top:0;height:100vh;overflow-y:auto}
+.sidebar-title{color:#7aaad0;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;padding:0 1.25rem .75rem}
+.s-btn{display:block;width:100%;text-align:left;background:none;border:none;color:#b8d4ea;font-size:13px;padding:9px 1.25rem;cursor:pointer;line-height:1.4}
+.s-btn:hover{background:rgba(255,255,255,.08);color:white}
+.s-btn.active{background:rgba(255,255,255,.15);color:white;font-weight:500;border-left:3px solid #c9a84c}
+.s-divider{border-top:1px solid rgba(255,255,255,.1);margin:.5rem 0}
+.main{flex:1;padding:2rem;max-width:820px;overflow-y:auto}
+.panel{display:none}
+.panel.active{display:block}
+.page-title{font-size:22px;font-weight:700;color:#1a3a5c;margin-bottom:4px}
+.page-sub{font-size:13px;color:#888;margin-bottom:1.5rem;padding-bottom:1rem;border-bottom:2px solid #1a3a5c}
+.sec{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#999;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid #e0e0e0;margin-top:1.5rem}
+.sec:first-child{margin-top:0}
+.card{background:white;border:1px solid #e0e0e0;border-radius:8px;padding:1rem 1.25rem;margin-bottom:10px}
+.card h3{font-size:15px;font-weight:600;color:#1a1a1a;margin-bottom:6px}
+.card p{font-size:14px;line-height:1.7;color:#444;margin-bottom:8px}
+.card p:last-child{margin-bottom:0}
+.card p strong{color:#1a3a5c}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 10px;border-radius:4px;margin-bottom:8px}
+.b-red{background:#fde;color:#a00}
+.b-green{background:#dfd;color:#060}
+.b-blue{background:#def;color:#036}
+.b-amber{background:#fef3cd;color:#7a4a00}
+.b-paxos{background:#e8f0fb;color:#1a3a5c}
+.analogy{background:#f0fff0;border-left:3px solid #2a8a2a;padding:10px 14px;margin-top:10px;font-size:13px;color:#1a5a1a;line-height:1.6;border-radius:0 6px 6px 0}
+.paxos-link{background:#e8f0fb;border-left:3px solid #1a3a5c;padding:10px 14px;margin-top:10px;font-size:13px;color:#1a3a5c;line-height:1.6;border-radius:0 6px 6px 0}
+.vs-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0}
+.vs-wrong{background:#fff0f0;border-radius:6px;padding:10px 14px;border-left:3px solid #c00}
+.vs-right{background:#f0fff0;border-radius:6px;padding:10px 14px;border-left:3px solid #060}
+.vs-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.vs-wrong .vs-label{color:#a00}
+.vs-right .vs-label{color:#060}
+.vs-text{font-size:13px;line-height:1.5;font-style:italic}
+.vs-wrong .vs-text{color:#a00}
+.vs-right .vs-text{color:#060}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:12px}
+.metric{background:white;border:1px solid #e0e0e0;border-radius:8px;padding:.75rem;text-align:center}
+.metric-val{font-size:20px;font-weight:700;color:#1a3a5c}
+.metric-label{font-size:11px;color:#888;margin-top:3px}
+.tab-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+.tab{background:#eee;border:none;border-radius:6px;padding:6px 14px;font-size:13px;cursor:pointer;color:#555}
+.tab.active{background:#1a3a5c;color:white;font-weight:500}
+.tabpanel{display:none}
+.tabpanel.active{display:block}
+.chain-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:10px}
+.chain-table th{text-align:left;padding:8px 10px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#888;border-bottom:1px solid #ddd}
+.chain-table td{padding:9px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top;line-height:1.5}
+.chain-table tr.hl td{background:#e8f0fb}
+.chain-table tr:last-child td{border-bottom:none}
+.crisis-step{display:flex;gap:12px;margin-bottom:12px}
+.step-num{background:#1a3a5c;color:white;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;margin-top:2px}
+.step-content h4{font-size:14px;font-weight:600;color:#1a1a1a;margin-bottom:3px}
+.step-content p{font-size:13px;color:#555;line-height:1.6}
+.win-card{background:#1a3a5c;color:white;border-radius:8px;padding:1.25rem;margin-bottom:12px}
+.win-card h3{font-size:16px;font-weight:600;color:white;margin-bottom:8px}
+.win-card p{font-size:14px;line-height:1.7;color:#b8d4ea}
+.quiz-q{font-size:15px;font-weight:600;color:#1a3a5c;margin-bottom:1rem}
+.quiz-opts{display:flex;flex-direction:column;gap:8px}
+.quiz-opt{background:white;border:1px solid #ddd;border-radius:6px;padding:.75rem 1rem;font-size:14px;cursor:pointer;color:#1a1a1a;text-align:left;line-height:1.5}
+.quiz-opt:hover{border-color:#1a3a5c}
+.quiz-opt.correct{border-color:#060;background:#f0fff0;color:#060}
+.quiz-opt.wrong{border-color:#c00;background:#fff0f0;color:#c00}
+.quiz-feedback{margin-top:1rem;font-size:14px;color:#444;line-height:1.6;padding:12px 14px;background:#f5f5f5;border-radius:6px}
+.progress-bar{background:#ddd;height:4px;border-radius:2px;margin-bottom:1.5rem}
+.progress-fill{background:#c9a84c;height:4px;border-radius:2px;transition:width .3s}
+@media(max-width:640px){.shell{flex-direction:column}.sidebar{width:100%;height:auto;position:relative;padding:.75rem 0}.main{padding:1.25rem}.vs-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- SIDEBAR -->
+<nav class="sidebar">
+  <div class="sidebar-title">Crypto Basics</div>
+  <button class="s-btn active" onclick="show('home')">Overview</button>
+  <button class="s-btn" onclick="show('blockchain')">What is blockchain?</button>
+  <button class="s-btn" onclick="show('chains')">Major blockchains</button>
+  <button class="s-btn" onclick="show('stablecoin')">Stablecoin</button>
+  <button class="s-btn" onclick="show('defi')">DeFi</button>
+  <button class="s-btn" onclick="show('wallet')">Wallet</button>
+  <button class="s-btn" onclick="show('tokenization')">Tokenization</button>
+  <button class="s-btn" onclick="show('charter')">Trust charter</button>
+  <div class="s-divider"></div>
+  <div class="sidebar-title">Paxos Deep Dive</div>
+  <button class="s-btn" onclick="show('paxos')">Who is Paxos?</button>
+  <button class="s-btn" onclick="show('products')">Paxos products</button>
+  <button class="s-btn" onclick="show('economy')">Blockchain + economy</button>
+  <button class="s-btn" onclick="show('dangers')">The dangers</button>
+  <button class="s-btn" onclick="show('usd')">USD on blockchain</button>
+  <button class="s-btn" onclick="show('busd')">BUSD story</button>
+  <div class="s-divider"></div>
+  <div class="sidebar-title">Communications POV</div>
+  <button class="s-btn" onclick="show('mistakes')">What others do wrong</button>
+  <button class="s-btn" onclick="show('right')">What Paxos should do</button>
+  <button class="s-btn" onclick="show('audiences')">Messaging by audience</button>
+  <button class="s-btn" onclick="show('genius')">The GENIUS Act</button>
+  <button class="s-btn" onclick="show('pov')">Your interview POV</button>
+  <div class="s-divider"></div>
+  <div class="sidebar-title">Test Yourself</div>
+  <button class="s-btn" onclick="show('quiz')">Quiz — all topics</button>
+</nav>
+
+<!-- MAIN -->
+<main class="main">
+
+<!-- HOME -->
+<div id="panel-home" class="panel active">
+  <div class="page-title">Paxos Interview Primer</div>
+  <div class="page-sub">Everything you need to walk in Monday knowing the business, the technology, and your communications point of view.</div>
+  <div class="metrics">
+    <div class="metric"><div class="metric-val">$315B</div><div class="metric-label">global stablecoin market</div></div>
+    <div class="metric"><div class="metric-val">$180B+</div><div class="metric-label">Paxos tokenization activity</div></div>
+    <div class="metric"><div class="metric-val">$2.4B</div><div class="metric-label">Paxos valuation</div></div>
+    <div class="metric"><div class="metric-val">2015</div><div class="metric-label">first NYDFS trust charter</div></div>
+    <div class="metric"><div class="metric-val">$100M+</div><div class="metric-label">Fordefi acquisition</div></div>
+    <div class="metric"><div class="metric-val">$12M</div><div class="metric-label">Paxos Labs raise 2026</div></div>
+  </div>
+  <div class="card">
+    <h3>How to use this app</h3>
+    <p>Work through the sidebar from top to bottom. Start with the basics, move to the Paxos deep dive, then build your communications point of view. End with the quiz to test yourself before Monday.</p>
+    <p>Every section connects back to your story. The analogies are designed to help you explain complex ideas in plain language — because that is exactly what the head of communications job requires.</p>
+  </div>
+  <div class="win-card">
+    <h3>The one line that wins the interview</h3>
+    <p>"I have done this exact job before — at the moment it was hardest. The Varo charter required holding the OCC, the Fed, investors, consumers, and media simultaneously without losing any of them. Paxos needs that same discipline. Nobody else walking through your door has done it."</p>
+  </div>
+</div>
+
+<!-- BLOCKCHAIN -->
+<div id="panel-blockchain" class="panel">
+  <div class="page-title">What is a blockchain?</div>
+  <div class="page-sub">The foundation of everything Paxos does</div>
+  <div class="card">
+    <div class="badge b-blue">the simple version</div>
+    <h3>A shared record book nobody controls</h3>
+    <p>A blockchain is a permanent, tamper-proof ledger of transactions — copied across thousands of computers simultaneously. Once written, it cannot be erased or changed. Every transaction is timestamped and linked to the one before it.</p>
+    <div class="analogy">The analogy: a blockchain is like a Google Doc that everyone can read, that auto-saves every change, and that nobody can delete — except instead of one server, it lives on thousands of computers at once.</div>
+  </div>
+  <div class="card">
+    <div class="badge b-blue">the key properties</div>
+    <h3>Why it matters</h3>
+    <p><strong>Decentralized:</strong> No single company or government controls it. To alter a record you would have to change every copy simultaneously — practically impossible.</p>
+    <p><strong>Transparent:</strong> Every transaction is visible and auditable in real time. Regulators, auditors, and partners can verify history instantly.</p>
+    <p><strong>Programmable (on most chains):</strong> Smart contracts — self-executing code — can attach rules to money. Pay when conditions are met. No human required.</p>
+    <p><strong>Fast and cheap:</strong> Transactions that take days through banks take seconds on blockchain, for fractions of a cent.</p>
+  </div>
+  <div class="card">
+    <div class="badge b-blue">bitcoin vs ethereum vs stellar</div>
+    <h3>Not all blockchains are the same</h3>
+    <p><strong>Bitcoin's blockchain</strong> does one thing — records bitcoin ownership. It is a ledger only. Not programmable. You cannot build apps on it or issue stablecoins.</p>
+    <p><strong>Ethereum</strong> is programmable — a platform where developers build applications. This is where Paxos issues most stablecoins. Think of Bitcoin as a calculator and Ethereum as a smartphone.</p>
+    <p><strong>Stellar</strong> was built for payments and financial inclusion — fast, cheap, designed for the unbanked. This is what Civitas ID uses. Paxos expanded to Stellar in late 2024.</p>
+    <div class="paxos-link">Your Civitas ID work on Stellar is directly relevant to Paxos. You understand the ecosystem from the inside. Use it.</div>
+  </div>
+</div>
+
+<!-- CHAINS -->
+<div id="panel-chains" class="panel">
+  <div class="page-title">Major Blockchains</div>
+  <div class="page-sub">The landscape — who is who and why it matters for Paxos</div>
+  <div class="card">
+    <p>Paxos operates on multiple chains — highlighted below. They are chain-agnostic by design: the same regulated stablecoin available wherever clients need it.</p>
+  </div>
+  <table class="chain-table">
+    <thead><tr><th>Blockchain</th><th>Speed</th><th>Fee</th><th>Best for</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Bitcoin</strong><br><small>2009</small></td><td>~10 min</td><td>$1–$10+</td><td>Digital gold, store of value only</td><td><span class="badge b-blue">dominant</span></td></tr>
+      <tr class="hl"><td><strong>Ethereum</strong><br><small>2015</small></td><td>~12 sec</td><td>$0.10–$5+</td><td>Smart contracts, DeFi, enterprise. Paxos primary chain.</td><td><span class="badge b-blue">dominant</span></td></tr>
+      <tr class="hl"><td><strong>Solana</strong><br><small>2020</small></td><td>&lt;1 sec</td><td>~$0.001</td><td>High-speed payments. Paxos supports PYUSD here.</td><td><span class="badge b-blue">major</span></td></tr>
+      <tr class="hl"><td><strong>Stellar</strong><br><small>2015</small></td><td>3–5 sec</td><td>~$0.0001</td><td>Cross-border payments, financial inclusion. Civitas ID + Paxos expansion.</td><td><span class="badge b-green">growing</span></td></tr>
+      <tr class="hl"><td><strong>Polygon</strong><br><small>2019</small></td><td>~2 sec</td><td>~$0.001</td><td>Lower-cost Ethereum extension. Paxos supports USDP here.</td><td><span class="badge b-blue">major</span></td></tr>
+      <tr><td><strong>Ripple/XRP</strong><br><small>2012</small></td><td>3–5 sec</td><td>~$0.0001</td><td>Bank-to-bank cross-border settlement</td><td><span class="badge b-blue">major</span></td></tr>
+      <tr><td><strong>Avalanche</strong><br><small>2020</small></td><td>&lt;1 sec</td><td>~$0.01</td><td>Custom enterprise blockchains, DeFi</td><td><span class="badge b-amber">up and comer</span></td></tr>
+      <tr><td><strong>Base (Coinbase)</strong><br><small>2023</small></td><td>~2 sec</td><td>~$0.001</td><td>Consumer crypto, 110M Coinbase users</td><td><span class="badge b-amber">up and comer</span></td></tr>
+      <tr><td><strong>Aptos / Sui</strong><br><small>2022–23</small></td><td>&lt;1 sec</td><td>very low</td><td>Next-gen speed. Built by ex-Meta engineers from failed Libra/Diem.</td><td><span class="badge b-amber">up and comer</span></td></tr>
+    </tbody>
+  </table>
+  <p style="font-size:12px;color:#888;margin-bottom:12px;">Highlighted rows = blockchains Paxos currently operates on</p>
+  <div class="paxos-link">Paxos is chain-agnostic by design. They issue the same regulated stablecoin across multiple chains — wherever institutional clients need to operate. The communications insight: this is a competitive moat, not a weakness. One integration, any blockchain.</div>
+</div>
+
+<!-- STABLECOIN -->
+<div id="panel-stablecoin" class="panel">
+  <div class="page-title">Stablecoin</div>
+  <div class="page-sub">Paxos's core product — and the fastest growing segment of digital finance</div>
+  <div class="card">
+    <div class="badge b-blue">what it is</div>
+    <h3>A cryptocurrency always worth exactly $1</h3>
+    <p>Most crypto goes up and down wildly — Bitcoin can drop 30% in a week. A stablecoin is pegged to a stable asset, usually the US dollar. One PYUSD always equals one dollar. The stability is the point.</p>
+    <div class="analogy">The analogy: a stablecoin is like a traveller's check. The bank holds your real dollars. You get an instrument representing exactly that amount. Except this one moves at internet speed, 24/7, globally.</div>
+  </div>
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('stable','types',this)">Three types</button>
+    <button class="tab" onclick="showTab('stable','paxos',this)">Paxos stablecoins</button>
+    <button class="tab" onclick="showTab('stable','terra',this)">The Terra collapse</button>
+    <button class="tab" onclick="showTab('stable','busd',this)">BUSD</button>
+  </div>
+  <div id="stable-types" class="tabpanel active">
+    <div class="card">
+      <h3>Three types — only one is safe at scale</h3>
+      <p><strong>Fiat-backed (what Paxos does):</strong> Real dollars in a real bank. For every token issued, one dollar is held in reserve. Fully backed. Safest model.</p>
+      <p><strong>Crypto-backed:</strong> Backed by another cryptocurrency. Requires over-collateralization because crypto is volatile. Riskier.</p>
+      <p><strong>Algorithmic (the dangerous one):</strong> No real reserve. A computer algorithm tries to maintain the peg through supply manipulation. This is what TerraLuna was. It collapsed catastrophically in 2022, losing $40 billion in 72 hours.</p>
+    </div>
+  </div>
+  <div id="stable-paxos" class="tabpanel">
+    <div class="card">
+      <h3>Paxos's four assets</h3>
+      <p><strong>PYUSD (PayPal USD):</strong> Paxos issues it, PayPal distributes it to 400 million users. $2.9 billion in circulation. Their most visible product.</p>
+      <p><strong>USDG (Global Dollar):</strong> Paxos's partner network stablecoin. Partners share in the yield from reserves — a revenue incentive to distribute it.</p>
+      <p><strong>USDP (Pax Dollar):</strong> Original Paxos stablecoin from 2018. Supply shrunk to $32M as Paxos shifted to partner-issued tokens.</p>
+      <p><strong>PAXG (Pax Gold):</strong> Not a dollar stablecoin — pegged to gold. Each token equals one troy ounce of a real gold bar in a London vault. $2.6 billion market cap.</p>
+    </div>
+  </div>
+  <div id="stable-terra" class="tabpanel">
+    <div class="card">
+      <div class="badge b-red">case study — catastrophic failure</div>
+      <h3>TerraLuna — why reserve backing matters</h3>
+      <p>TerraLuna was an algorithmic stablecoin — no real dollar reserves. In May 2022 a large holder sold heavily, breaking confidence in the peg. The algorithm tried to defend it by printing more tokens, making things worse. Within 72 hours $40 billion evaporated. The stablecoin went from $1 to near zero.</p>
+      <p>Millions of retail investors were wiped out. It triggered a broader crypto market crash and is the primary reason regulators now require full reserve backing.</p>
+      <div class="paxos-link">Paxos was completely unaffected. Every token is backed by real dollars. This is their core safety proposition and a major reason institutional buyers choose them.</div>
+    </div>
+  </div>
+  <div id="stable-busd" class="tabpanel">
+    <div class="card">
+      <div class="badge b-amber">historical context</div>
+      <h3>BUSD — what it was and why it ended</h3>
+      <p>BUSD was a stablecoin Paxos issued in partnership with Binance. Binance distributed it — massive reach. Paxos handled the regulated back-end — reserves and compliance. At peak it held $23 billion in circulation.</p>
+      <p>In February 2023 the NYDFS ordered Paxos to stop minting BUSD. The SEC signaled it might classify BUSD as an unregistered security. The problem was the Binance relationship — Binance itself was under heavy global regulatory scrutiny. Paxos complied immediately, began wind-down, and every holder redeemed at exactly $1. No losses. In 2025 Paxos settled with NYDFS for $48.5 million.</p>
+      <div class="paxos-link">BUSD no longer exists. If asked: "Paxos complied immediately, wound it down cleanly, every holder made whole. That is exactly what a regulated trust company does. It is a proof point, not a liability."</div>
+    </div>
+  </div>
+</div>
+
+<!-- DEFI -->
+<div id="panel-defi" class="panel">
+  <div class="page-title">DeFi — Decentralized Finance</div>
+  <div class="page-sub">Financial services that run on code instead of banks</div>
+  <div class="card">
+    <div class="badge b-blue">what it is</div>
+    <h3>Banking without a bank</h3>
+    <p>DeFi is the ecosystem of financial applications — lending, borrowing, earning interest, trading — that run on blockchains using smart contracts instead of banks or intermediaries.</p>
+    <div class="analogy">The analogy: a bank decides whether to lend you money based on your credit score and a loan officer's judgment. A DeFi protocol lends automatically to anyone who deposits enough collateral — no application, no approval, no hours of operation. The code executes the rules.</div>
+  </div>
+  <div class="card">
+    <h3>How it works in plain language</h3>
+    <p><strong>Lending:</strong> Deposit stablecoins into a protocol like Aave. The protocol lends them to borrowers who post collateral. You earn interest automatically.</p>
+    <p><strong>Borrowing:</strong> Post $150 of Ethereum as collateral. Borrow $100 in stablecoins. No credit check. No approval. If your collateral drops too much, the protocol automatically liquidates it.</p>
+    <p><strong>Trading:</strong> Swap one cryptocurrency for another on a decentralized exchange like Uniswap. No company in the middle. A smart contract handles it instantly.</p>
+  </div>
+  <div class="card">
+    <div class="badge b-paxos">Paxos Labs connection</div>
+    <h3>Why Paxos cares about DeFi now</h3>
+    <p>Paxos's enterprise clients hold stablecoins but want to put them to work — earn yield, borrow against them. Paxos Labs is building the Amplify Suite to let companies access DeFi yield without building the blockchain infrastructure themselves. This is the "what now?" answer for stablecoin holders.</p>
+  </div>
+  <div class="card">
+    <div class="badge b-red">the risks</div>
+    <h3>Why DeFi is risky</h3>
+    <p>Smart contract bugs can be exploited — hackers have stolen billions from DeFi protocols. There is no FDIC insurance. No customer service. No safety nets. DeFi is powerful but operates entirely without the consumer protections traditional finance provides.</p>
+  </div>
+</div>
+
+<!-- WALLET -->
+<div id="panel-wallet" class="panel">
+  <div class="page-title">Wallet</div>
+  <div class="page-sub">How people hold and move crypto — and why Paxos paid $100M for Fordefi</div>
+  <div class="card">
+    <div class="badge b-blue">what it is</div>
+    <h3>A wallet holds your keys — not your coins</h3>
+    <p>A crypto wallet does not hold coins the way a physical wallet holds cash. Your cryptocurrency lives on the blockchain. The wallet holds your private keys — the cryptographic password that proves you own those coins and authorizes transactions.</p>
+    <div class="analogy">The analogy: your coins are in a safe deposit box (the blockchain). Your wallet is the key. Lose the key and you cannot access the box. Someone steals the key and they own everything in it.</div>
+  </div>
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('wallet','types',this)">Types of wallets</button>
+    <button class="tab" onclick="showTab('wallet','keys',this)">Private keys</button>
+    <button class="tab" onclick="showTab('wallet','fordefi',this)">Why Paxos bought Fordefi</button>
+  </div>
+  <div id="wallet-types" class="tabpanel active">
+    <div class="card">
+      <h3>Hot vs cold — custodial vs non-custodial</h3>
+      <p><strong>Hot wallet:</strong> Connected to the internet. Convenient for daily use but more exposed to hacking. MetaMask, Coinbase Wallet.</p>
+      <p><strong>Cold wallet:</strong> Not connected to the internet. Like a safe. Ledger and Trezor are physical hardware cold wallets — they look like USB drives.</p>
+      <p><strong>Custodial:</strong> Someone else holds your keys — you trust them (like a bank). They can freeze your account.</p>
+      <p><strong>Non-custodial:</strong> You hold your own keys. Full control, full responsibility. No one can freeze your account. No one can help you if you lose access.</p>
+    </div>
+  </div>
+  <div id="wallet-keys" class="tabpanel">
+    <div class="card">
+      <h3>Private keys — the most important security concept in crypto</h3>
+      <p>Every wallet has a public key (like your account number — safe to share) and a private key (like your password — never share it). Anyone who has your private key controls your funds completely.</p>
+      <p>Most wallets give you a seed phrase — 12 or 24 random words representing your private key. Write it on paper. Store it safely. Lose it and your funds are gone forever if your device breaks. Someone finds it and your funds are gone immediately.</p>
+      <p><strong>Famous example:</strong> A man threw away a hard drive containing the private key to 7,500 Bitcoin — now worth hundreds of millions of dollars. He has been trying to get permission to dig up a UK landfill ever since.</p>
+    </div>
+  </div>
+  <div id="wallet-fordefi" class="tabpanel">
+    <div class="card">
+      <div class="badge b-paxos">$100M acquisition — April 2025</div>
+      <h3>Why Paxos bought Fordefi</h3>
+      <p>Fordefi builds institutional-grade wallets — enterprise custody solutions with multi-signature security, audit trails, compliance controls, and role-based access. It is the difference between a consumer checking account and a full treasury management system.</p>
+      <p>Paxos's enterprise clients issue and hold stablecoins and need secure, compliant infrastructure to manage and deploy them. Paxos now controls the full stack: issue the stablecoin AND provide the secure wallet to hold and move it.</p>
+      <div class="paxos-link">The communications story: Fordefi is vertical integration. Paxos is no longer just the mint — they are the mint and the vault.</div>
+    </div>
+  </div>
+</div>
+
+<!-- TOKENIZATION -->
+<div id="panel-tokenization" class="panel">
+  <div class="page-title">Tokenization</div>
+  <div class="page-sub">Putting real-world assets on a blockchain — $180B and counting</div>
+  <div class="card">
+    <div class="badge b-blue">what it is</div>
+    <h3>A digital twin of any real-world asset</h3>
+    <p>Tokenization means creating a blockchain token that represents ownership of a real asset — a dollar, a share of stock, a gold bar, a building, a piece of art. The token travels at blockchain speed. The asset stays where it is.</p>
+    <div class="analogy">The analogy: a stock certificate proves you own shares. It is paper. Now imagine that paper is replaced by a digital token that transfers anywhere in the world in seconds, automatically, with no middlemen. That is tokenization.</div>
+  </div>
+  <div class="card">
+    <h3>What gets tokenized</h3>
+    <p><strong>Currency (stablecoins):</strong> Paxos's core business. A dollar token is a tokenized dollar.</p>
+    <p><strong>Gold (PAXG):</strong> Each PAXG token equals one troy ounce of a specific gold bar in a London vault. Fully redeemable for physical metal.</p>
+    <p><strong>Stocks and bonds:</strong> BlackRock and Franklin Templeton have launched tokenized US Treasury funds. Institutional investors settle in seconds instead of days.</p>
+    <p><strong>Real estate:</strong> A $10M building tokenized into 10 million $1 tokens. Anyone can buy a fractional stake.</p>
+    <p><strong>Identities (Civitas ID):</strong> Government-issued credentials tokenized as verifiable digital documents a person owns and controls. Your exact work.</p>
+    <div class="paxos-link">Paxos has processed over $180 billion in tokenization activity. That number is the headline in every pitch to a bank or regulator.</div>
+  </div>
+  <div class="card">
+    <div class="badge b-green">economic impact</div>
+    <h3>Settlement in seconds instead of days</h3>
+    <p>Stock trades currently settle in two business days (T+2). Money and shares travel through multiple intermediaries. Tokenized stocks settle in seconds. Trillions of dollars currently frozen in settlement limbo would be freed. The Federal Reserve and every major bank are studying this.</p>
+  </div>
+</div>
+
+<!-- CHARTER -->
+<div id="panel-charter" class="panel">
+  <div class="page-title">Trust Charter</div>
+  <div class="page-sub">Paxos's single most important competitive differentiator</div>
+  <div class="card">
+    <div class="badge b-blue">what it is</div>
+    <h3>A banking license for digital assets</h3>
+    <p>A trust charter is a license from a banking regulator authorizing a company to hold customer assets in trust. It comes with strict capital requirements, regular audits, and ongoing supervision. One of the hardest licenses to obtain in financial services.</p>
+    <div class="analogy">The analogy: the difference between a licensed pharmacist and someone selling pills from a backpack. Both might have the same medicine. Only one is authorized, supervised, and legally accountable. Banks will only work with the pharmacist.</div>
+  </div>
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('charter','charters',this)">Paxos's charters</button>
+    <button class="tab" onclick="showTab('charter','moat',this)">Why it matters</button>
+    <button class="tab" onclick="showTab('charter','varo',this)">The Varo parallel</button>
+  </div>
+  <div id="charter-charters" class="tabpanel active">
+    <div class="card">
+      <h3>Paxos holds four regulatory licenses</h3>
+      <p><strong>NYDFS Trust Charter (2015):</strong> First crypto company to receive one. The New York Department of Financial Services supervises all Paxos operations. This is why banks can partner with them.</p>
+      <p><strong>OCC National Trust Charter:</strong> Federal-level oversight from the Office of the Comptroller of the Currency. Even more significant — federal banking regulation, not just state level.</p>
+      <p><strong>MAS License (Singapore):</strong> Major Payment Institution license. Allows global issuance of USDG through Singapore entity.</p>
+      <p><strong>MiCA (EU):</strong> EU stablecoin regulation compliance through their Finnish entity. Covers all 27 EU member states.</p>
+    </div>
+  </div>
+  <div id="charter-moat" class="tabpanel">
+    <div class="card">
+      <h3>Why this is Paxos's competitive moat</h3>
+      <p>Tether — the largest stablecoin at $100+ billion — has no US banking license and does not fully disclose its reserves. Banks will not touch it.</p>
+      <p>Paxos's trust charter means customer funds are held in bankruptcy-remote accounts — if Paxos fails, your money is legally separate and protected. Reserves are independently audited monthly. Every major operation is supervised.</p>
+      <p>PayPal chose Paxos not because they are cheap — because they are the only regulated option a publicly traded company could work with.</p>
+    </div>
+  </div>
+  <div id="charter-varo" class="tabpanel">
+    <div class="card">
+      <div class="badge b-green">your story</div>
+      <h3>The Varo parallel — your strongest interview credential</h3>
+      <p>Paxos received the first trust charter for digital assets in 2015. You led communications through the first fintech national bank charter in US history at Varo — managing the OCC, FDIC, Federal Reserve, investors, consumers, and media simultaneously with zero negative regulatory coverage.</p>
+      <p>These are the same moment. A first-of-its-kind regulated institution proving a new type of financial company can earn institutional trust. That is a specific and rare credential. Nobody else walking through Paxos's door has it.</p>
+      <div class="paxos-link">This is why Charles Cascarilla took Colin's call. Use it.</div>
+    </div>
+  </div>
+</div>
+
+<!-- PAXOS OVERVIEW -->
+<div id="panel-paxos" class="panel">
+  <div class="page-title">Who is Paxos?</div>
+  <div class="page-sub">The regulated trust company building the infrastructure of digital finance</div>
+  <div class="metrics">
+    <div class="metric"><div class="metric-val">2012</div><div class="metric-label">founded by Cascarilla + Teo</div></div>
+    <div class="metric"><div class="metric-val">$2.4B</div><div class="metric-label">valuation</div></div>
+    <div class="metric"><div class="metric-val">$535M</div><div class="metric-label">total raised</div></div>
+    <div class="metric"><div class="metric-val">PayPal</div><div class="metric-label">flagship partner</div></div>
+  </div>
+  <div class="card">
+    <div class="badge b-blue">one sentence</div>
+    <h3>Paxos is a regulated trust company that issues stablecoins and blockchain infrastructure for the world's largest financial institutions.</h3>
+    <p>They are the plumbing. PayPal, Bank of America, Nubank, MercadoLibre, Mastercard, and Interactive Brokers use Paxos to issue and move digital dollars — without building the regulatory infrastructure themselves.</p>
+  </div>
+  <div class="card">
+    <h3>Key people to know</h3>
+    <p><strong>Charles Cascarilla</strong> — CEO and Co-Founder. Testified before Congress. Secured the first Trust charter for digital assets. The face of Paxos.</p>
+    <p><strong>Rich Teo</strong> — Co-Founder. Leads Paxos Asia from Singapore.</p>
+    <p><strong>Dorothy Chang</strong> — VP Marketing and Communications since 2018. Yale cognitive science. Business Insider Top 50 PR Professionals in Tech. Likely your hiring manager or key stakeholder.</p>
+    <p><strong>Rebecca McClain</strong> — Director of Communications, seven-year veteran. Reporting relationship to the Head of Communications role is unconfirmed.</p>
+    <p><strong>Alice Takhtajan</strong> — CFO, joined December 2025. Leads IPO preparation. 25 years at JPMorgan, 150+ equity transactions.</p>
+  </div>
+  <div class="card">
+    <h3>Key investors</h3>
+    <p>Founders Fund (Peter Thiel), Bank of America, Oak HC/FT (led $300M Series D), Mithril Capital, Coinbase Ventures, MercadoLibre, Jane Street, Blockchain Capital.</p>
+  </div>
+  <div class="card">
+    <div class="badge b-amber">the difficult period</div>
+    <h3>The BUSD settlement — know this cold</h3>
+    <p>In 2023 the NYDFS ordered Paxos to stop minting BUSD (their Binance partnership stablecoin). In 2025 Paxos settled for $48.5 million. The issues were historical and remediated. Every BUSD holder redeemed at exactly $1.</p>
+    <div class="paxos-link">If asked: "Paxos acted immediately, wound it down cleanly, made every holder whole. That is what a regulated trust company does under pressure."</div>
+  </div>
+</div>
+
+<!-- PRODUCTS -->
+<div id="panel-products" class="panel">
+  <div class="page-title">Paxos Products</div>
+  <div class="page-sub">What they actually sell and why each matters</div>
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('prod','pyusd',this)">PYUSD</button>
+    <button class="tab" onclick="showTab('prod','usdg',this)">USDG</button>
+    <button class="tab" onclick="showTab('prod','paxg',this)">PAXG</button>
+    <button class="tab" onclick="showTab('prod','labs',this)">Paxos Labs</button>
+    <button class="tab" onclick="showTab('prod','fordefi',this)">Fordefi</button>
+    <button class="tab" onclick="showTab('prod','brokerage',this)">Other services</button>
+  </div>
+  <div id="prod-pyusd" class="tabpanel active">
+    <div class="card">
+      <div class="badge b-blue">flagship product</div>
+      <h3>PayPal USD (PYUSD)</h3>
+      <p>Paxos issues and backs PYUSD. Every token is a real dollar held in reserve. PayPal handles distribution to their 400 million users. Paxos handles the regulated back-end: custody, reserves, compliance, minting, redemption.</p>
+      <p>Supply: approximately $2.9 billion as of Q2 2026. Available on Ethereum and Solana. This is the most visible proof that regulated stablecoin infrastructure works at scale.</p>
+      <div class="paxos-link">The communications story: PayPal chose Paxos because they needed a partner banks and regulators would trust. The charter was the selection criteria.</div>
+    </div>
+  </div>
+  <div id="prod-usdg" class="tabpanel">
+    <div class="card">
+      <div class="badge b-blue">network stablecoin</div>
+      <h3>Global Dollar (USDG)</h3>
+      <p>Paxos's own stablecoin within the Global Dollar Network — a consortium of partners who agree to accept and distribute USDG. Key differentiator: partners share in the yield generated by the dollar reserves backing USDG. This creates a revenue incentive to distribute it widely.</p>
+      <p>Issued by Paxos Digital Singapore (under MAS) and Paxos Issuance Europe (under MiCA in Finland). Approximately $2.5 billion in supply.</p>
+    </div>
+  </div>
+  <div id="prod-paxg" class="tabpanel">
+    <div class="card">
+      <div class="badge b-blue">tokenized gold</div>
+      <h3>Pax Gold (PAXG)</h3>
+      <p>Not a dollar stablecoin — it is pegged to physical gold. Each PAXG token represents exactly one troy ounce of a specific, serial-numbered good-delivery gold bar held in LBMA-accredited Brink's London vaults.</p>
+      <p>You can actually claim the physical gold. Market cap approximately $2.6 billion at $4,315 per token as of Q2 2026. It proves Paxos can tokenize any real-world asset — not just dollars.</p>
+    </div>
+  </div>
+  <div id="prod-labs" class="tabpanel">
+    <div class="card">
+      <div class="badge b-blue">DeFi spinoff — April 2026</div>
+      <h3>Paxos Labs</h3>
+      <p>A recently spun-off entity led by Charles Cascarilla. Raised $12 million from Blockchain Capital in April 2026. Builds tools that let companies do more with stablecoins — earn yield, borrow against them, issue branded tokens.</p>
+      <p>Their product is the Amplify Suite: three tools — Earn (yield on digital assets), Borrow (lending against them), and Mint (branded stablecoin issuance).</p>
+      <p>The insight Paxos Labs answers: companies now have stablecoins but ask "what now?" Paxos Labs is the answer.</p>
+    </div>
+  </div>
+  <div id="prod-fordefi" class="tabpanel">
+    <div class="card">
+      <div class="badge b-paxos">acquisition — $100M+</div>
+      <h3>Fordefi</h3>
+      <p>Institutional-grade crypto wallet company acquired by Paxos for over $100 million. Provides secure custody solutions for enterprises managing large digital asset positions — multi-signature security, audit trails, compliance controls, role-based access.</p>
+      <p>Why it matters: Paxos clients issue stablecoins and need secure infrastructure to hold and deploy them. Fordefi completes the vertical stack. Issue the stablecoin. Secure the wallet. Enable DeFi access. All from one provider.</p>
+    </div>
+  </div>
+  <div id="prod-brokerage" class="tabpanel">
+    <div class="card">
+      <h3>Crypto brokerage and settlement infrastructure</h3>
+      <p><strong>Crypto brokerage:</strong> Allows enterprises to buy and sell crypto. Interactive Brokers uses Paxos brokerage infrastructure to offer Bitcoin and Ethereum trading to their clients.</p>
+      <p><strong>Settlement:</strong> Paxos operates clearing and settlement infrastructure for institutional partners. Institutional buyers evaluate this along three axes: charter quality, reserve composition, and operational continuity.</p>
+      <p><strong>itBit:</strong> Paxos's own crypto exchange, one of the oldest regulated exchanges in the US.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ECONOMY -->
+<div id="panel-economy" class="panel">
+  <div class="page-title">Blockchain + the Economy</div>
+  <div class="page-sub">Why this technology matters beyond speculation</div>
+  <div class="metrics">
+    <div class="metric"><div class="metric-val">2 days</div><div class="metric-label">traditional settlement time</div></div>
+    <div class="metric"><div class="metric-val">&lt;5 sec</div><div class="metric-label">blockchain settlement</div></div>
+    <div class="metric"><div class="metric-val">7–10%</div><div class="metric-label">typical wire transfer fees</div></div>
+    <div class="metric"><div class="metric-val">1.4B</div><div class="metric-label">adults without bank accounts</div></div>
+  </div>
+  <div class="card"><div class="badge b-green">benefit 1</div><h3>Eliminates the middlemen tax</h3><p>Every time money moves through banks, correspondent banks, wire systems, clearinghouses — each takes a cut. A worker sending $200 home to Mexico might lose $15–$20 in fees. On blockchain that same transfer costs a fraction of a cent and arrives in seconds. At scale this represents hundreds of billions returned to people and businesses annually.</p><div class="analogy">The analogy: the internet made information free to move. Blockchain makes money free to move.</div></div>
+  <div class="card"><div class="badge b-green">benefit 2</div><h3>Financial inclusion for 1.4 billion unbanked people</h3><p>1.4 billion adults have no bank account. They cannot save safely, access credit, or receive payments. But over 5 billion people have smartphones. Blockchain lets anyone with a phone hold, send, and receive money — no bank required. This is the mission of Civitas ID and why Stellar was built.</p></div>
+  <div class="card"><div class="badge b-green">benefit 3</div><h3>Settlement in seconds frees trillions in capital</h3><p>When stocks settle in two days, that money is frozen. Banks hold enormous reserves just to cover this gap. Tokenized stocks settling in seconds would free trillions of dollars of trapped capital. The Fed and every major bank are studying this.</p></div>
+  <div class="card"><div class="badge b-green">benefit 4</div><h3>Programmable money creates new economic models</h3><p>Smart contracts let money execute automatically — pay a supplier the moment goods arrive, distribute royalties to 10,000 artists the second their song plays, send aid that can only be spent on school fees. Money that follows rules without human intervention is a fundamentally new tool.</p></div>
+  <div class="card"><div class="badge b-green">benefit 5</div><h3>Transparency reduces fraud and corruption</h3><p>Every blockchain transaction is visible and permanent. Aid organizations can track whether funds reach recipients. Supply chains can prove provenance. In countries with corrupt banking systems, blockchain can make government payments auditable by citizens in real time.</p></div>
+</div>
+
+<!-- DANGERS -->
+<div id="panel-dangers" class="panel">
+  <div class="page-title">The Dangers</div>
+  <div class="page-sub">Know these cold — they will come up in your interview</div>
+  <div class="card"><div class="badge b-red">danger 1</div><h3>Volatility and speculation</h3><p>Bitcoin fell 80% between 2021 and 2022. People who borrowed to invest lost everything. This is why stablecoins matter — they remove volatility while keeping the benefits of blockchain.</p><div class="paxos-link">Paxos response: every PYUSD is always worth exactly $1. Fully backed. Fully regulated.</div></div>
+  <div class="card"><div class="badge b-red">danger 2</div><h3>Fraud, scams, and irreversibility</h3><p>Send bitcoin to the wrong address and it is gone forever. No customer service. No fraud department. No chargebacks. The same permanence that makes blockchain trustworthy makes mistakes catastrophic. Crypto scams have cost consumers billions annually.</p><div class="analogy">The analogy: blockchain is like cash in an envelope. Wrong address — no getting it back.</div></div>
+  <div class="card"><div class="badge b-red">danger 3</div><h3>Regulatory risk and legal uncertainty</h3><p>Rules vary by country and change constantly. A company can be fully legal in one jurisdiction and illegal in another. This is why the GENIUS Act matters — clear federal rules reduce risk. And why Paxos's multi-jurisdiction licensing is a genuine moat.</p></div>
+  <div class="card"><div class="badge b-red">danger 4</div><h3>Stablecoin de-pegging — the TerraLuna lesson</h3><p>TerraLuna collapsed from $1 to near zero in 72 hours in 2022, wiping out $40 billion. It was algorithmic — no real reserve. This is why Paxos's fully backed, monthly audited model is so important. The reserves are real. They proved it when they wound down BUSD and every holder redeemed at exactly $1.</p></div>
+  <div class="card"><div class="badge b-red">danger 5</div><h3>Money laundering and illicit use</h3><p>Crypto has been used by bad actors to move money without detection. Regulators worry about sanctions evasion and ransomware payments. Paxos's response: full KYC/AML on all clients. They are not a workaround — they are the compliance layer.</p></div>
+  <div class="card"><div class="badge b-red">danger 6</div><h3>Environmental concern</h3><p>Bitcoin uses enormous amounts of electricity — comparable to some countries. However, most newer blockchains including Ethereum (since 2022), Solana, and Stellar use proof-of-stake which uses 99.9% less energy. This distinction matters.</p></div>
+</div>
+
+<!-- USD ON BLOCKCHAIN -->
+<div id="panel-usd" class="panel">
+  <div class="page-title">Can USD Exist on a Blockchain?</div>
+  <div class="page-sub">Yes. That is what Paxos does. Here is the full picture.</div>
+  <div class="card">
+    <div class="badge b-blue">short answer</div>
+    <h3>Yes — and it already does. That is what a stablecoin is.</h3>
+    <p>A stablecoin is a digital representation of a real dollar, living on a blockchain. Paxos issues PYUSD — every token is backed by a real dollar held in reserve. It is not a substitute for the dollar. It IS a dollar, in digital form, moving at blockchain speed.</p>
+  </div>
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('usd','stable',this)">Stablecoins (now)</button>
+    <button class="tab" onclick="showTab('usd','cbdc',this)">CBDC (future)</button>
+    <button class="tab" onclick="showTab('usd','genius',this)">The GENIUS Act</button>
+  </div>
+  <div id="usd-stable" class="tabpanel active">
+    <div class="card">
+      <h3>Stablecoins — the private sector dollar on blockchain</h3>
+      <p>Right now, dollars exist on blockchain as stablecoins issued by private companies. Paxos issues PYUSD, USDP, and USDG. Circle issues USDC. Tether issues USDT — the largest at over $100 billion. These are real dollars, fully reserved, that move at blockchain speed. They are already used for over $30 trillion in transactions annually.</p>
+    </div>
+  </div>
+  <div id="usd-cbdc" class="tabpanel">
+    <div class="card">
+      <h3>CBDC — Central Bank Digital Currency</h3>
+      <p>A CBDC is a digital dollar issued directly by the Federal Reserve — the government equivalent of a stablecoin. China has launched the digital yuan. The EU is developing the digital euro. The US has been studying it but not launched. Political debate is fierce — some argue it gives the government too much surveillance power over how citizens spend money.</p>
+      <p>If the US launched a CBDC, Paxos could become the infrastructure provider that issues it — or it could compete with private stablecoins.</p>
+    </div>
+  </div>
+  <div id="usd-genius" class="tabpanel">
+    <div class="card">
+      <div class="badge b-green">most important context for Monday</div>
+      <h3>The GENIUS Act — stablecoin legislation moving through Congress now</h3>
+      <p>The GENIUS Act would create the first federal US framework for stablecoin issuers. Key requirements: full dollar backing, regular audits, regulatory oversight, consumer protections. Every requirement is something Paxos already does.</p>
+      <p>For competitors not yet regulated — including Tether — this creates enormous compliance burden. Paxos starts ahead.</p>
+      <div class="paxos-link">The story: the law did not change Paxos. The law caught up to Paxos. This is a once-in-a-decade window to be the defining voice in regulated digital assets. A new Head of Communications who captures this moment will define Paxos's brand for a generation.</div>
+    </div>
+  </div>
+</div>
+
+<!-- BUSD -->
+<div id="panel-busd" class="panel">
+  <div class="page-title">The BUSD Story</div>
+  <div class="page-sub">Crisis communications done right — and what it means for your interview</div>
+  <div class="card">
+    <div class="badge b-amber">what happened</div>
+    <h3>February 2023 — NYDFS orders Paxos to stop minting BUSD</h3>
+    <p>BUSD was a stablecoin Paxos issued in partnership with Binance. When Binance came under heavy global regulatory scrutiny, the NYDFS ordered Paxos to stop minting. The SEC also signaled it might classify BUSD as an unregistered security. In 2025 Paxos settled with NYDFS for $48.5 million — $26.5 million penalty plus $22 million in compliance improvements.</p>
+  </div>
+  <div class="card">
+    <div class="sec">how Paxos handled it correctly</div>
+    <div class="crisis-step"><div class="step-num">1</div><div class="step-content"><h4>Immediate compliance — no fight</h4><p>When the NYDFS issued the order, Paxos complied within days. No argument. No litigation. No delay. They are a good regulatory actor.</p></div></div>
+    <div class="crisis-step"><div class="step-num">2</div><div class="step-content"><h4>Separated Paxos from Binance cleanly</h4><p>The problem was the Binance relationship, not Paxos's core operations. Communications made this distinction clearly.</p></div></div>
+    <div class="crisis-step"><div class="step-num">3</div><div class="step-content"><h4>Kept the forward story strong</h4><p>While winding down BUSD, Paxos was growing PYUSD with PayPal and building USDG. Good communications kept focus forward.</p></div></div>
+    <div class="crisis-step"><div class="step-num">4</div><div class="step-content"><h4>Orderly redemption — every holder made whole</h4><p>Every BUSD token redeemed at exactly $1. No losses. This proved the reserve model works even under stress — the strongest possible demonstration of reserve integrity.</p></div></div>
+    <div class="paxos-link">Own It. Explain It. Promise It. If they ask about BUSD in your interview: "Paxos demonstrated exactly the right behavior — immediate compliance, orderly wind-down, full redemption. Every token holder was made whole. That is what a regulated trust company does. It is a proof point, not a liability."</div>
+  </div>
+</div>
+
+<!-- MISTAKES -->
+<div id="panel-mistakes" class="panel">
+  <div class="page-title">What Others Do Wrong</div>
+  <div class="page-sub">Five communications failures that define the crypto industry — and how Paxos avoids them</div>
+  <div class="card"><div class="badge b-red">mistake 1</div><h3>Leading with technology instead of outcomes</h3>
+    <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong</div><div class="vs-text">"Our blockchain uses proof-of-stake consensus with sub-second finality."</div></div><div class="vs-right"><div class="vs-label">right</div><div class="vs-text">"Your international payment settles in five seconds instead of three days. No intermediaries. No hidden fees."</div></div></div>
+    <p>Bank CTOs do not care how the blockchain works. They care whether it makes their business faster, cheaper, and safer.</p>
+  </div>
+  <div class="card"><div class="badge b-red">mistake 2</div><h3>Talking about crypto when the audience hears scam</h3>
+    <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong</div><div class="vs-text">"We are a crypto company bringing Web3 to enterprise."</div></div><div class="vs-right"><div class="vs-label">right</div><div class="vs-text">"We are a regulated trust company that uses blockchain to make financial services faster and cheaper."</div></div></div>
+    <p>To a bank compliance officer, "crypto" means fraud, volatility, and TerraLuna. That single reframe changes everything.</p>
+  </div>
+  <div class="card"><div class="badge b-red">mistake 3</div><h3>Treating all audiences as one</h3><p>Crypto-native audiences speak in block confirmations. Bank CTOs speak in settlement cycles. Regulators speak in reserve requirements. Financial journalists speak in market share. Most crypto companies pick one and alienate everyone else. Paxos cannot.</p><div class="paxos-link">This is exactly what you did at Varo. OCC, investors, consumers, media — four audiences, zero contradictions. That is the skill Paxos needs.</div></div>
+  <div class="card"><div class="badge b-red">mistake 4</div><h3>Going quiet after regulatory actions</h3>
+    <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong</div><div class="vs-text">"We are cooperating with regulators and have no further comment."</div></div><div class="vs-right"><div class="vs-label">right</div><div class="vs-text">"Historical issues, fully remediated. Our regulatory standing today is stronger because we act immediately when concerns arise."</div></div></div>
+    <p>Going quiet reads as guilt. Leading with remediation reads as accountability. Most crypto companies handle this badly.</p>
+  </div>
+  <div class="card"><div class="badge b-red">mistake 5</div><h3>Hype-first communications that collapse under scrutiny</h3><p>The metaverse. NFTs. Web3. Each wave promised transformation and delivered mostly disappointment. Companies that staked their credibility on hype lost everything when the cycle turned. Paxos is building real regulated infrastructure. Understating and over-delivering is more durable.</p><div class="paxos-link">Paxos's communications tone should be: calm, precise, institutional. They are a trust company, not a startup trying to go viral.</div></div>
+</div>
+
+<!-- RIGHT -->
+<div id="panel-right" class="panel">
+  <div class="page-title">What Paxos Should Do Right</div>
+  <div class="page-sub">Your strategic point of view — five principles</div>
+  <div class="card"><div class="badge b-green">principle 1</div><h3>Lead with regulation, not technology</h3>
+    <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">old frame</div><div class="vs-text">"Paxos is a blockchain infrastructure platform."</div></div><div class="vs-right"><div class="vs-label">right frame</div><div class="vs-text">"Paxos is a regulated trust company that uses blockchain to move money faster."</div></div></div>
+    <p>The charter is the trust signal. Banks choose based on trust, not speed. Lead with the credential that earns trust.</p>
+  </div>
+  <div class="card"><div class="badge b-green">principle 2</div><h3>Own the "after crypto" narrative</h3><p>The market has moved through speculation, crash, and rebuilding. Paxos should be what comes next — the regulated infrastructure the market has been waiting for. The GENIUS Act, BlackRock tokenizing Treasuries, PayPal integrating PYUSD — these are finance stories, not crypto stories. Pitch the WSJ financial desk, not CoinDesk.</p></div>
+  <div class="card"><div class="badge b-green">principle 3</div><h3>Make Charles Cascarilla the voice of regulated digital finance</h3><p>He has already testified before Congress. He should be the person the WSJ, FT, and Bloomberg call when they need a sober, credible voice on stablecoins. That requires a sustained thought leadership program — op-eds, regulatory testimony, Milken, Davos, Fed forums. Build it systematically.</p></div>
+  <div class="card"><div class="badge b-green">principle 4</div><h3>Use the GENIUS Act as a category-defining moment</h3><p>When the GENIUS Act passes, Paxos was already compliant. The narrative: Paxos built for this moment for a decade. Not reacting to regulation. Ahead of it. The standard-setter. This window will not stay open forever.</p></div>
+  <div class="card"><div class="badge b-green">principle 5</div><h3>Make transparency a competitive weapon</h3><p>Tether has been plagued by reserve questions for years. Paxos publishes monthly independent attestations. Turn that into a brand signal. In a space where trust is scarce, being the most transparent player is a genuine moat.</p></div>
+</div>
+
+<!-- AUDIENCES -->
+<div id="panel-audiences" class="panel">
+  <div class="page-title">Messaging by Audience</div>
+  <div class="page-sub">Four audiences — four completely different messages</div>
+  <div class="tab-row">
+    <button class="tab active" onclick="showTab('aud','bank',this)">Bank CTO</button>
+    <button class="tab" onclick="showTab('aud','regulator',this)">Regulator</button>
+    <button class="tab" onclick="showTab('aud','crypto',this)">Crypto community</button>
+    <button class="tab" onclick="showTab('aud','press',this)">Financial press</button>
+  </div>
+  <div id="aud-bank" class="tabpanel active">
+    <div class="card"><div class="badge b-blue">bank CTO — what they care about: risk, compliance, trust</div>
+      <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong</div><div class="vs-text">"Join the decentralized financial revolution with Paxos blockchain infrastructure."</div></div><div class="vs-right"><div class="vs-label">right</div><div class="vs-text">"Settle payments in seconds. Fully regulated. Monthly reserve attestations. Bankruptcy-remote. PayPal and Bank of America already trust us."</div></div></div>
+      <p>They do not care about blockchain. They care about whether this creates regulatory risk and whether their board will approve it.</p>
+    </div>
+  </div>
+  <div id="aud-regulator" class="tabpanel">
+    <div class="card"><div class="badge b-blue">regulator — what they care about: consumer protection, reserve adequacy, track record</div>
+      <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong</div><div class="vs-text">"Stablecoins disrupt traditional banking and give power back to the people."</div></div><div class="vs-right"><div class="vs-label">right</div><div class="vs-text">"Trust charter since 2015. Reserves in FDIC-insured banks. Stopped BUSD the moment NYDFS raised concerns. We are built to work with regulators, not around them."</div></div></div>
+    </div>
+  </div>
+  <div id="aud-crypto" class="tabpanel">
+    <div class="card"><div class="badge b-blue">crypto-native — what they care about: openness, yield, DeFi, authenticity</div>
+      <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong</div><div class="vs-text">"Paxos brings institutional-grade compliance to the crypto ecosystem."</div></div><div class="vs-right"><div class="vs-label">right</div><div class="vs-text">"We built the regulated bridge that lets institutional capital flow into DeFi safely. PYUSD on Solana. Paxos Labs on Aave and Uniswap. The infrastructure that makes TradFi and DeFi work together."</div></div></div>
+      <p>Show up in their spaces. Crypto Twitter, DeFi forums, Bankless podcast. Not just press releases.</p>
+    </div>
+  </div>
+  <div id="aud-press" class="tabpanel">
+    <div class="card"><div class="badge b-blue">financial press — what they care about: why now, who is winning, the stakes</div>
+      <div class="vs-grid"><div class="vs-wrong"><div class="vs-label">wrong pitch</div><div class="vs-text">"Paxos issues compliant stablecoins for enterprise clients."</div></div><div class="vs-right"><div class="vs-label">right pitch</div><div class="vs-text">"Stablecoins hit $315 billion. Congress is passing the first US regulatory framework. The companies that built for this moment — Paxos chief among them — are positioned to become the regulated infrastructure of global finance. This is the biggest story in finance right now."</div></div></div>
+      <p>Target WSJ, FT, Bloomberg, Barron's — not just CoinDesk. The mainstream financial press is where institutional credibility is built.</p>
+    </div>
+  </div>
+</div>
+
+<!-- GENIUS -->
+<div id="panel-genius" class="panel">
+  <div class="page-title">The GENIUS Act</div>
+  <div class="page-sub">The most important stablecoin legislation in years — and Paxos's biggest communications opportunity</div>
+  <div class="card">
+    <div class="badge b-blue">what it is</div>
+    <h3>The first federal US stablecoin law — moving through Congress now</h3>
+    <p>The GENIUS Act (Guiding and Establishing National Innovation for US Stablecoins) would create a federal regulatory framework for stablecoin issuers. Key requirements: full dollar backing, monthly attestations, regulatory oversight, consumer protections.</p>
+    <p>Every requirement is something Paxos already does. For competitors including Tether — which handles over $100 billion but has no US banking license — this creates enormous compliance burden.</p>
+  </div>
+  <div class="card">
+    <div class="badge b-green">the story</div>
+    <h3>The law did not change Paxos. The law caught up to Paxos.</h3>
+    <p>When the GENIUS Act passes, the narrative is ready: while the industry scrambles, Paxos has operated at this standard for a decade. Not reacting to regulation. Ahead of it. The standard-setter.</p>
+  </div>
+  <div class="card">
+    <div class="badge b-green">the playbook</div>
+    <h3>What the Head of Communications should be doing right now</h3>
+    <p><strong>Build relationships on Capitol Hill.</strong> Staff writing the bill need to understand how stablecoins work. Paxos should be the company they call for technical briefings.</p>
+    <p><strong>Keep Charles in front of Congress.</strong> He has already testified. Keep him in that rotation — every hearing is earned media and institutional credibility.</p>
+    <p><strong>Brief the financial press now.</strong> When the bill passes, every journalist needs a source. Brief them for months in advance so Paxos gets the first call — not Circle, not Tether.</p>
+    <p><strong>Prepare the passage day narrative.</strong> A strong WSJ or FT op-ed from Charles on passage day cements Paxos as the authority voice in regulated digital assets.</p>
+    <div class="paxos-link">This window will not stay open. A new Head of Communications who captures this moment will define Paxos's brand for a generation.</div>
+  </div>
+</div>
+
+<!-- POV -->
+<div id="panel-pov" class="panel">
+  <div class="page-title">Your Interview POV</div>
+  <div class="page-sub">What to say Monday — word for word</div>
+  <div class="card"><div class="badge b-blue">if they ask your philosophy</div><h3>"How do you think about communications for a regulated blockchain company?"</h3>
+    <p>"The fundamental mistake most crypto companies make is communicating for believers — people who already understand blockchain and are excited. That audience does not need convincing. The audiences that matter for institutional adoption are the bank CTO, the pension fund manager, the regulator, and the financial journalist covering traditional markets.</p>
+    <p>Those audiences hear 'crypto' and think fraud and volatility. The first job is reframing. Paxos is not a crypto company. It is a regulated trust company that uses blockchain to make financial infrastructure faster and cheaper. That single reframe changes everything about how the story gets told."</p>
+  </div>
+  <div class="card"><div class="badge b-blue">if they ask about the dual audience challenge</div><h3>"How do you hold crypto-native and traditional financial institutions simultaneously?"</h3>
+    <p>"They are not actually in conflict if you frame it correctly. Crypto-native audiences care about open infrastructure, yield, and DeFi access. Traditional institutions care about regulation, reserve backing, and risk management. Paxos offers both.</p>
+    <p>The narrative architecture is: we are the regulated bridge. We did not abandon crypto to serve banks. We built the infrastructure that lets institutional capital flow into the open financial system safely. That story works for both audiences because it is true."</p>
+  </div>
+  <div class="card"><div class="badge b-blue">if they ask what you would do first</div><h3>"What would your first 90 days look like?"</h3>
+    <p>"Three things immediately. First — build relationships with the financial press. Not CoinDesk. The Wall Street Journal, Financial Times, and Bloomberg. The GENIUS Act is moving through Congress right now and when it passes, I want Paxos to be the first call every financial journalist makes.</p>
+    <p>Second — get Charles in front of the right rooms. Milken. Davos. Congressional staff briefings. Build his presence as the most credible voice on regulated digital assets.</p>
+    <p>Third — make reserve transparency a campaign. Paxos already publishes monthly attestations. Most competitors do not. Turn that into a brand signal."</p>
+  </div>
+  <div class="card"><div class="badge b-blue">if they ask about the BUSD situation</div><h3>"What do you make of the BUSD settlement?"</h3>
+    <p>"Paxos demonstrated exactly the right behavior under regulatory pressure — immediate compliance, orderly wind-down, full redemption. Every token holder was made whole. The reserves were real. That is what a regulated trust company does. It is actually a proof point, not a liability. Their regulatory standing is stronger today because they acted correctly when it mattered."</p>
+  </div>
+  <div class="win-card">
+    <h3>The one line that wins the interview</h3>
+    <p>"I have done this exact job before — at the moment it was hardest. The Varo charter required holding the OCC, the Fed, investors, consumers, and media simultaneously without losing any of them. Paxos needs that same discipline. Nobody else walking through your door has done it."</p>
+  </div>
+</div>
+
+<!-- QUIZ -->
+<div id="panel-quiz" class="panel">
+  <div class="page-title">Quiz — All Topics</div>
+  <div class="page-sub">Ten questions across crypto basics, Paxos, and communications</div>
+  <div class="progress-bar"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+  <div id="quiz-container"></div>
+</div>
+
+</main>
+</div>
+
+<script>
+var panels = ['home','blockchain','chains','stablecoin','defi','wallet','tokenization','charter','paxos','products','economy','dangers','usd','busd','mistakes','right','audiences','genius','pov','quiz'];
+
+function show(id) {
+  panels.forEach(function(p) {
+    var el = document.getElementById('panel-' + p);
+    if (el) el.classList.remove('active');
+  });
+  var t = document.getElementById('panel-' + id);
+  if (t) { t.classList.add('active'); t.scrollIntoView? t.parentElement.scrollTop=0:null; }
+  document.querySelectorAll('.s-btn').forEach(function(b) { b.classList.remove('active'); });
+  event.currentTarget.classList.add('active');
+  if (id === 'quiz') { qIdx = 0; renderQuiz(); }
+  document.querySelector('.main').scrollTop = 0;
+}
+
+function showTab(group, id, btn) {
+  var prefix = group + '-';
+  document.querySelectorAll('[id^="' + prefix + '"]').forEach(function(p) { p.classList.remove('active'); });
+  var t = document.getElementById(prefix + id);
+  if (t) t.classList.add('active');
+  if (btn) {
+    btn.closest('.tab-row').querySelectorAll('.tab').forEach(function(b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+  }
+}
+
+var quizData = [
+  { q:"What does a blockchain actually do?", opts:["Stores files in the cloud","Records transactions permanently across thousands of computers — tamper-proof and decentralized","Replaces the internet","Mines cryptocurrency automatically"], correct:1, feedback:"Correct. A blockchain is a permanent, distributed ledger. Every transaction is timestamped, linked to the previous one, and copied across thousands of computers. Once written, it cannot be altered." },
+  { q:"What is the difference between Bitcoin's blockchain and Ethereum's blockchain?", opts:["Bitcoin is newer","Bitcoin tracks only bitcoin ownership. Ethereum is programmable — you can build apps and issue stablecoins on it.","They are the same technology","Ethereum is backed by the US government"], correct:1, feedback:"Correct. Bitcoin does one thing — record bitcoin ownership. Ethereum is a programmable platform where developers can build applications, issue stablecoins, and write smart contracts." },
+  { q:"A bank CTO asks: 'What backs a Paxos stablecoin?' What do you say?", opts:["Bitcoin held in a vault","Nothing — it is algorithmic","Real dollars held in FDIC-insured banks and US Treasuries, independently attested monthly under NYDFS oversight","The US government guarantees it"], correct:2, feedback:"Correct. Every Paxos stablecoin is backed 1:1 by real dollars in cash and short-term Treasuries, attested monthly by independent auditors, under NYDFS regulatory supervision. This is the core trust proposition." },
+  { q:"Why did TerraLuna collapse in 2022?", opts:["The SEC shut it down","It was an algorithmic stablecoin with no real reserve backing — the algorithm spiralled when confidence broke","Paxos stopped supporting it","Bitcoin crashed and took it down"], correct:1, feedback:"Correct. TerraLuna had no real dollar reserves. When confidence broke, its algorithm printed more tokens to defend the peg — making things worse. $40 billion evaporated in 72 hours. This is why reserve-backed stablecoins matter." },
+  { q:"What is the GENIUS Act?", opts:["A Paxos internal program","Proposed US federal legislation that would create a regulatory framework for stablecoins — requiring full backing and oversight","An EU regulation already in effect","A DeFi protocol on Ethereum"], correct:1, feedback:"Correct. The GENIUS Act is the most important US stablecoin legislation in years. Every requirement it proposes is something Paxos already does. When it passes, Paxos wins while competitors scramble." },
+  { q:"Why did Paxos acquire Fordefi?", opts:["To compete with Coinbase's exchange","To give enterprise clients institutional-grade wallets for securely holding and deploying their stablecoins","To enter the consumer market","To build a DeFi protocol"], correct:1, feedback:"Correct. Paxos's enterprise clients had stablecoins and needed secure infrastructure to deploy them. Fordefi completes the stack — Paxos now issues the stablecoin AND provides the vault to secure it." },
+  { q:"Paxos expanded to Stellar in late 2024. Why does this matter for your interview?", opts:["It doesn't — Stellar is unimportant","You work on Stellar daily at Civitas ID — giving you first-hand knowledge of the ecosystem Paxos just joined","You should avoid mentioning Civitas","Stellar is Paxos's primary blockchain"], correct:1, feedback:"Correct. Your daily Civitas ID work on Stellar is a genuine differentiator. Paxos recently expanded there. You understand the ecosystem from the inside — payments, financial inclusion, the SDF relationship. Use it." },
+  { q:"What is the right response to the BUSD settlement if asked in the interview?", opts:["Avoid the topic entirely","Paxos acted immediately, wound it down cleanly, made every holder whole — that is what a regulated trust company does under pressure. It is a proof point.","Admit Paxos made a serious mistake","Say it had nothing to do with Paxos"], correct:1, feedback:"Correct. The BUSD response demonstrates exactly the right regulatory behavior — immediate compliance, orderly wind-down, every token redeemed at $1. Paxos's regulatory standing is actually stronger because they acted correctly under pressure." },
+  { q:"What is DeFi in plain language?", opts:["A type of stablecoin","A US government digital currency","Financial services — lending, borrowing, earning yield — that run on blockchains using smart contracts instead of banks","A Paxos product"], correct:2, feedback:"Correct. DeFi is Decentralized Finance — financial services that run on code instead of through traditional banks. Paxos Labs is building tools to let enterprises access DeFi yield without building the infrastructure themselves." },
+  { q:"What is your one-line answer to 'why are you the right person for this role?'", opts:["Because I understand blockchain technology","I have done this exact job before — at the moment it was hardest. The Varo charter required holding the OCC, the Fed, investors, consumers, and media without losing any of them. Paxos needs that discipline. Nobody else has done it.","Because I am excited about crypto","Because I know Charles Cascarilla"], correct:1, feedback:"Correct. That is the line. The Varo charter is the closest analog to Paxos's communications challenge that exists. Nobody else walking in Monday has that credential. Own it." }
+];
+
+var qIdx = 0;
+function renderQuiz() {
+  var pct = Math.round((qIdx / quizData.length) * 100);
+  document.getElementById('progress').style.width = pct + '%';
+  if (qIdx >= quizData.length) {
+    document.getElementById('quiz-container').innerHTML = '<div class="win-card" style="margin-top:0"><h3>You are ready for Monday.</h3><p>Ten questions down. You know the business, the technology, and your communications point of view. Now go read the Paxos newsroom, review your one-line answer, and get some sleep.</p></div>';
+    document.getElementById('progress').style.width = '100%';
+    return;
+  }
+  var q = quizData[qIdx];
+  var html = '<div class="card"><p class="quiz-q">' + (qIdx+1) + ' of ' + quizData.length + ' &nbsp;&nbsp; ' + q.q + '</p><div class="quiz-opts">';
+  q.opts.forEach(function(opt, i) { html += '<button class="quiz-opt" onclick="answer(' + i + ')">' + opt + '</button>'; });
+  html += '</div><div class="quiz-feedback" id="qfb" style="display:none"></div></div>';
+  document.getElementById('quiz-container').innerHTML = html;
+}
+function answer(i) {
+  var q = quizData[qIdx];
+  var opts = document.querySelectorAll('.quiz-opt');
+  opts.forEach(function(o) { o.disabled = true; });
+  opts[i].classList.add(i === q.correct ? 'correct' : 'wrong');
+  if (i !== q.correct) opts[q.correct].classList.add('correct');
+  var fb = document.getElementById('qfb');
+  fb.style.display = 'block';
+  fb.innerHTML = q.feedback + '<br><br><button class="quiz-opt" style="margin-top:4px;background:#1a3a5c;color:white;border-color:#1a3a5c" onclick="nextQ()">Next &rarr;</button>';
+}
+function nextQ() { qIdx++; renderQuiz(); }
+</script>
+
+</body>
+</html>
